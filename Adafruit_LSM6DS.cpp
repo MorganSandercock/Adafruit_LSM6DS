@@ -28,6 +28,8 @@
  * 	@section  HISTORY
  *
  *     v1.0 - First release
+ *     v1.1 - M Sandercock
+ *            Increase I2C bus speed to 400mHz
  */
 
 #include "Arduino.h"
@@ -125,6 +127,8 @@ boolean Adafruit_LSM6DS::begin_I2C(uint8_t i2c_address, TwoWire *wire,
   if (!i2c_dev->begin()) {
     return false;
   }
+
+  i2c_dev->setSpeed(400000); //crank it up to max "normal I2C" speed 400kHz
 
   return _init(sensor_id);
 }
@@ -258,6 +262,29 @@ bool Adafruit_LSM6DS::getEvent(sensors_event_t *accel, sensors_event_t *gyro,
   fillAccelEvent(accel, t);
   fillGyroEvent(gyro, t);
   fillTempEvent(temp, t);
+  return true;
+}
+/**************************************************************************/
+/*!
+    @brief  Gets the most recent accel+gyro event, Adafruit Unified Sensor format
+    @param  accel
+            Pointer to an Adafruit Unified sensor_event_t object to be filled
+            with acceleration event data.
+
+    @param  gyro
+            Pointer to an Adafruit Unified sensor_event_t object to be filled
+            with gyro event data.
+
+    @return True on successful read
+*/
+/**************************************************************************/
+bool Adafruit_LSM6DS::getEvent(sensors_event_t *accel, sensors_event_t *gyro) {
+  uint32_t t = millis();
+  _readFast();
+
+  // use helpers to fill in the events
+  fillAccelEvent(accel, t);
+  fillGyroEvent(gyro, t);
   return true;
 }
 
@@ -454,6 +481,9 @@ void Adafruit_LSM6DS::highPassFilter(bool filter_enabled,
  *     @brief  Updates the measurement data for all sensors simultaneously
  */
 /**************************************************************************/
+void Adafruit_LSM6DS::_readFast(void) {
+	_read(); //in this lower class, this is just a placeholder. Will be replaced at higher level if required
+}
 void Adafruit_LSM6DS::_read(void) {
   // get raw readings
   Adafruit_BusIO_Register data_reg = Adafruit_BusIO_Register(

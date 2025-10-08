@@ -5,6 +5,8 @@ This is the Adafruit LSM6DS 6-DoF Accelerometer and Gyroscope Sensor Library for
 Tested and works great with the Adafruit LSM6DSOX Breakout Board 
 [<img src="assets/board.jpg?raw=true" width="500px">](https://www.adafruit.com/products/4438)
 
+Updated for LSM6DSV320 and all other LSM6DSV... variants. These chips have a different pinout to the others
+and either a "dual channel" or a complete second "high G" accelerometer in the package.
 
 This chip uses I2C to communicate, 2 pins are required to interface
 

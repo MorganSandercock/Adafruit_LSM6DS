@@ -133,9 +133,8 @@ private:
 };
 
 /*!
- *    @brief  Base class for use with LSM6DS series acclerometer gyro sensors
- * from STMicroelectronics. DO NOT USE DIRECTLY. Specific sensor variants should
- * be subclassed as needed.
+ *    @brief  Class that stores state and functions for interacting with
+ *            the LSM6DS I2C Accel/Gyro
  */
 class Adafruit_LSM6DS {
 public:
@@ -153,6 +152,7 @@ public:
 
   bool getEvent(sensors_event_t *accel, sensors_event_t *gyro,
                 sensors_event_t *temp);
+  bool getEvent(sensors_event_t *accel, sensors_event_t *gyro);
 
   lsm6ds_data_rate_t getAccelDataRate(void);
   void setAccelDataRate(lsm6ds_data_rate_t data_rate);
@@ -214,6 +214,7 @@ protected:
   uint8_t chipID(void);
   uint8_t status(void);
   virtual void _read(void);
+  virtual void _readFast(void);
   virtual bool _init(int32_t sensor_id);
 
   uint16_t _sensorid_accel, ///< ID number for accelerometer
