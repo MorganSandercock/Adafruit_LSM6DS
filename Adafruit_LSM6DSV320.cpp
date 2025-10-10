@@ -4,7 +4,7 @@
  *  Adafruit LSM6DSV320 9-DoF Accelerometer and Gyroscope and high-G accelerometer library
  *
  *  @section intro_sec Introduction
- *  Sub-class of Adafruit_LSM6DSV that extends the functions for the V320 chip
+ *  Sub-class of Adafruit_LSM6DSV that extends the functions for the V320 and V80 chips
  *
  *  Aside: magnetic sensors from ST
  *      This sensor is likely going to be paired with a 3-axis compass to make a 9-dof sensor.
@@ -55,27 +55,17 @@ Adafruit_LSM6DSV320::Adafruit_LSM6DSV320(void) {}
 Adafruit_LSM6DSV320::~Adafruit_LSM6DSV320(void) {}
 
 bool Adafruit_LSM6DSV320::_init(int32_t sensor_id) {
-  Adafruit_BusIO_Register chip_id = Adafruit_BusIO_Register(
-      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_WHOAMI);
-  // Serial.print("Read ID 0x"); Serial.println(chip_id.read(), HEX);
-
-
-  // make sure we're talking to the right chip
-  if (chip_id.read() != LSM6DSV320_CHIP_ID) {
-    return false;
-  }
-
   // call base class _init() - ignore its return value as it will be looking for the wrong chip ID
   Adafruit_LSM6DSV::_init(sensor_id);
 
   //now set up the high-g sensor
   setHighGDataRate(LSM6DSV320_HGRATE_480_HZ);  //doesn't go any slower than this
-  setHighGRange(LSM6DSV320_ACCEL_RANGE_320_G); //go for the max!
+  setHighGRange(LSM6DSV320_ACCEL_RANGE_128_G); //Maximum common to both V320 and V80
 
-  return true;
+  return (chipID() == LSM6DSV320_CHIP_ID); //identical chip ID for both V320 and V80
 }
 
-/**************************************************************************/
+/**************************************************************************/ 
 /*!
     @brief Gets the high-G data rate.
     @returns The the high-G data rate.

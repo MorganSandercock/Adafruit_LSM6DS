@@ -1,7 +1,7 @@
 /*!
  *  @file Adafruit_LSM6DSV.h
  *
- * 	I2C Driver base for Adafruit LSM6DSVxx Dual-Channel Accelerometer and Gyroscope
+ * 	I2C Driver base for LSM6DSVxx Dual-Channel Accelerometer and Gyroscope
  *      library
  *
  *    LSM6DSV - "dual channel" allows a 16G accelerometer scale to appear on the "high G" outputs
@@ -14,13 +14,13 @@
  *  Sub-class for chip with different max range:  
  *    LSM6DSV32 - "dual channel" is always 32G
  *
- *  Separate .h for true dual accelerometer chips:
+ *  Separate .h for true dual accelerometer chips, inherits from this class:
  *    LSM6DSV320 9-DoF 16G Accelerometer, 4000dps Gyroscope and 320G "high-G" Accelerometer
  *    LSM6DSV80 9-DoF 16G Accelerometer, 4000dps Gyroscope and 80G "high-G" Accelerometer
  *
  *  The register map on these chips with dual accelerometers is quite different to the 
  *  LSM6DSO series chips. All chips except the V80 and V16B have OIS abilities, which isn't supported
- *  by this library. 
+ *  by this library. All "V" chips have the sensor fusion low-power (SFLP) algorithm available.
  *
  *  Chips without a true high-g accelerometer return 0x70 for the who-am-I.
  *  The "B" TDM chip who-am-I is 0x71
@@ -34,10 +34,14 @@
  *      1. Call _read() or _readFast() then access the raw or scaled public values *RECOMMENDED*
  *      2. Call getEvent(sensor, sensor, sensor, sensor) to fill in Adafruit sensor objects
  *      3. Call read...(x, y, z) to get 12 bytes of XYZ values direct from the chip and scale to 
- *         floating-point output units. "Arduino API" *GOOD FOR JUST ONE SENSOR OF INTEREST*
+ *         floating-point output units. "Arduino API" *GOOD FOR JUST ONE SENSOR OF INTEREST AND SFLP*
  *      4. Call get...Sensor() to get a pointer to just one sensor object inside the class. 
  *         Then you can call .getEvent() on each sensor. Each getEvent does a full 26-byte data read on the chip.
  *         .getSensor() on a sensor will show the sensor details such as max/min but that is erased by a .getEvent()
+ *      5. For "Gimme acceleration without gravity" you can enable the SFLP algorithm and read its outputs (up to 480Hz)
+ *      6. All outputs can be routed through the FIFO, each set of 4 bytes read from FIFO has an identifier at the beginning
+ *         to tell you what kind of data is stored in the 3 data bytes of the FIFO. 
+ *         What isn't clear is how the 4 elements of the quaterion are read when there's only 1 tag and only 3 data bytes.
  *
  *
  * 	Adafruit invests time and resources providing this open source code,
@@ -56,11 +60,17 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 
+//#include <float16.h>  //Include this if you want to use the 16-bit floatng point values that the SFLP algorithm uses
+                        //AND you have installed the float16 library https://github.com/RobTillaart/float16/tree/master
+#ifndef FLOAT16_LIB_VERSION
+#define float16 int16_t //Since you're not using the 16-bit floats, this line prevents compiler errors
+#endif
+
 #define LSM6DSV_I2CADDR_DEFAULT 0x6A ///< LSM6DSxxx default i2c address (address pin grounded)
 #define LSM6DSV_CHIP_ID 0x70         ///< LSM6DSV default device id from WHOAMI register 0x0F
 #define LSM6DSV16B_CHIP_ID 0x71      ///< LSM6DSV16B default device id from WHOAMI register 0x0F
  
-#define LSM6DSV_FUNC_CFG_ACCESS 0x1  ///< Enable embedded functions register
+#define LSM6DSV_FUNC_CFG_ACCESS 0x01 ///< Setting bits here controls access to the overlapping registers
 #define LSM6DSV_PIN_CTRL 0x02        ///< Output pin control (interrupt drive strength)
 #define LSM6DSV_IF_CFG 0x03          ///< Interface config
 #define LSM6DSV_INT1_CTRL 0x0D       ///< Interrupt control for INT 1
@@ -84,6 +94,16 @@
 #define LSM6DSV_X_OFS_USR 0x73       ///< Accelerometer user offset
 #define LSM6DSV_Y_OFS_USR 0x74       ///< Accelerometer user offset
 #define LSM6DSV_Z_OFS_USR 0x75       ///< Accelerometer user offset
+#define LSM6DSV_HG_X_OFS_USR 0x6C    ///< High-G accelerometer user offset
+#define LSM6DSV_HG_Y_OFS_USR 0x6D    ///< High-G accelerometer user offset
+#define LSM6DSV_HG_Z_OFS_USR 0x6E    ///< High-G accelerometer user offset
+#define LSM6DSV_EMB_FUNC_EN_A 0x04   ///< Embedded functions control register
+#define LSM6DSV_EMB_FUNC_EXEC_STATUS 0x07 ///< Embedded functions status register (overflow and running/not running)
+#define LSM6DSV_SFLP_ODR 0x5E        ///< SFLP output data rate (an embedded function register)
+#define LSM6DSV_SFLP_GBIASX_L 0x16   ///< SFLP gyro bias output (an embedded function register)
+#define LSM6DSV_SFLP_GRAVX_L 0x1E    ///< SFLP gravity output (an embedded function register)
+#define LSM6DSV_SFLP_QUATW_L 0x2A    ///< SFLP quaternion output (an embedded function register) float16
+#define LSM6DSV_SFLP_GBIASX_INIT_L 0x32 ///< SFLP gyro bias input/output (an embedded function register) float16
 
 /** The accel or gyro data rate - note the gyro can't do 1.875Hz */
 typedef enum data_rate {
@@ -101,6 +121,16 @@ typedef enum data_rate {
   LSM6DSV_RATE_3_84K_HZ,
   LSM6DSV_RATE_7_68K_HZ
 } lsm6dsv_data_rate_t;
+
+/** The output data rates for the sensor fusion algorithm */
+typedef enum sflp_data_rate {
+  LSM6DSV_SFLP_RATE_15_HZ,
+  LSM6DSV_SFLP_RATE_30_HZ,
+  LSM6DSV_SFLP_RATE_60_HZ,
+  LSM6DSV_SFLP_RATE_120_HZ,
+  LSM6DSV_SFLP_RATE_240_HZ,
+  LSM6DSV_SFLP_RATE_480_HZ
+} lsm6dsv_sflp_data_rate_t;
 
 
 /** The accelerometer data range - identical for all except DSV32*/
@@ -241,6 +271,9 @@ public:
                 sensors_event_t *temp,
                 sensors_event_t *highG);
 
+  lsm6dsv_sflp_data_rate_t getSFLPDataRate(void);
+  void setSFLPDataRate(lsm6dsv_sflp_data_rate_t data_rate);
+
   lsm6dsv_data_rate_t getAccelDataRate(void);
   void setAccelDataRate(lsm6dsv_data_rate_t data_rate);
 
@@ -275,6 +308,7 @@ public:
 			int8_t offsetX = 0, 
 			int8_t offsetY = 0, 
 			int8_t offsetZ = 0);
+  void highGOffset(int8_t offsetX, int8_t offsetY, int8_t offsetZ);
 
   /* wakeup and pedometer functions not implemented yet*/
   //void enableWakeup(bool enable, uint8_t duration = 0, uint8_t thresh = 20);
@@ -284,6 +318,12 @@ public:
   //void enablePedometer(bool enable);
   //void resetPedometer(void);
   //uint16_t readPedometer(void);
+
+  void enableSFLP(bool enable); //turn on/off the sensor-fusion-low-power (embedded function)
+  int readSFLPQuaternion(float16 &w, float16 &x, float16 &y, float16 &z);
+  int readSFLPGravity(float &x, float &y, float &z);
+  int readSFLPGyroBias(float &x, float &y, float &z);
+  //no read-write for the initial gyro bias or the "init" bit in EMB_FUNC_INIT_A
 
   // Arduino compatible API
   int readAcceleration(float &x, float &y, float &z);
@@ -336,6 +376,7 @@ protected:
   uint8_t chipID(void);
   uint8_t status(void);
   virtual bool _init(int32_t sensor_id);
+  void funcCfgAccess(bool embFunc = false, bool sHub = false, bool FSM = false, bool globalReset = false);
 
   uint16_t _sensorid_accel, ///< ID number for accelerometer
       _sensorid_gyro,       ///< ID number for gyro

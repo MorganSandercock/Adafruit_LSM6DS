@@ -211,12 +211,20 @@ bool Adafruit_LSM6DSV::begin_SPI(int8_t cs_pin, int8_t sck_pin, int8_t miso_pin,
 /*!
     @brief Resets the sensor to its power-on state, clearing all registers and
    memory
-   Note there's a different "power-on reset" in register FUNC_CFG_ACCESS
+
    If you aren't talking to a LSM6DS chip then you can get stuck here as maybe the
    bit can be set but then won't un-set itself to show that the reset is done.
    Use a 1-second timeout to get un-stuck. Maybe return an error code?
 */
 void Adafruit_LSM6DSV::reset(void) {
+
+  //It is possible for the embedded functions access bit to be set (we interrupted it in the middle of an operation)
+  //and this is very persistent. When that is enabled, then you can't access the CFG3 register to do a master reset.
+  //So the first step in bringing it back from a random position is to turn that off. 
+  //Since we're there already, we'll do a SW_POR (software power-on reset? Global reset?) on the embedded functions too.
+  funcCfgAccess(false, false, false, true);
+  delay(1); //Wait for the reset? Datasheet doesn't say.
+
 
   Adafruit_BusIO_Register ctrl3 = Adafruit_BusIO_Register(
       i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_CTRL3);
@@ -229,7 +237,8 @@ void Adafruit_LSM6DSV::reset(void) {
   unsigned long start = millis();
   while (sw_reset.read() && millis() - start < 1000) {
     delay(1);
-  }
+  } 
+
 }
 
 /*!
@@ -577,22 +586,22 @@ void Adafruit_LSM6DSV::setGyroScale() {
   //datasheet magic numbers are milli-degrees per second per LSB
   switch (gyroRangeBuffered) {
   case LSM6DSV_GYRO_RANGE_4000_DPS:
-    gyroScale = 140.0 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 140.0 / 1000.0;
     break;
   case LSM6DSV_GYRO_RANGE_2000_DPS:
-    gyroScale = 70.0 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 70.0 / 1000.0;
     break;
   case LSM6DSV_GYRO_RANGE_1000_DPS:
-    gyroScale = 35.0 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 35.0 / 1000.0;
     break;
   case LSM6DSV_GYRO_RANGE_500_DPS:
-    gyroScale = 17.50 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 17.50 / 1000.0;
     break;
   case LSM6DSV_GYRO_RANGE_250_DPS:
-    gyroScale = 8.75 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 8.75 / 1000.0;
     break;
   case LSM6DSV_GYRO_RANGE_RESERVED: //Should never see this, but need to cover all of the enum
-    gyroScale = 8.75 * SENSORS_DPS_TO_RADS / 1000.0;
+    gyroScale = 8.75 / 1000.0;
     break;
   }
 
@@ -700,6 +709,9 @@ void Adafruit_LSM6DSV::gyroLowPassFilter(bool filter_enabled,
 /*!
     @brief Configures the user offset (zero calibration) for accelerometer.
 	       Does not configure USR_OFF_ON_WU to utilize offset within wakeup logic.
+		   Note the offset is set in g, not dependent on the accelerometer range selected.
+		   Datasheet page 72 seems to be incorrect attributing the weight to the high-G accel offsets
+		   as it is contradicted by page 108 which says their weight depends on the high-G scale.
     @param enabled Whether to enable the offset (if you're turning it off, all other parameters are ignored)
     @param weight Multiplier for the offset 0 = 2^-10 g/LSB 1 = 2^-6 g/LSB
     @param offsetX The offset in the X axis (positive or negative)
@@ -729,6 +741,30 @@ void Adafruit_LSM6DSV::accelOffset(bool enabled, bool weight, int8_t offsetX, in
 		  i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_Z_OFS_USR);
 	  Z_OFS_USR.write(offsetZ);
   }
+}
+
+/**************************************************************************/
+/*!
+    @brief Configures the user offset (zero calibration) for high-G accelerometer.
+	       Datasheet page 108 says the weight depends on the high-G scale.
+		   Up to 256G, each LSB here represents 0.25g and 0.33g for 320G range.
+    @param offsetX The offset in the X axis (positive or negative)
+    @param offsetY The offset in the Y axis (positive or negative)
+    @param offsetZ The offset in the Z axis (positive or negative)
+*/
+/**************************************************************************/
+void Adafruit_LSM6DSV::highGOffset(int8_t offsetX, int8_t offsetY, int8_t offsetZ){
+
+  Adafruit_BusIO_Register XL_HG_X_OFS_USR = Adafruit_BusIO_Register(
+	  i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_X_OFS_USR);
+  XL_HG_X_OFS_USR.write(offsetX);
+  Adafruit_BusIO_Register XL_HG_Y_OFS_USR = Adafruit_BusIO_Register(
+	  i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_Y_OFS_USR);
+  XL_HG_Y_OFS_USR.write(offsetY);
+  Adafruit_BusIO_Register XL_HG_Z_OFS_USR = Adafruit_BusIO_Register(
+	  i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_Z_OFS_USR);
+  XL_HG_Z_OFS_USR.write(offsetZ);
+
 }
 
 /******************* Adafruit_Sensor functions *****************/
@@ -872,7 +908,7 @@ void Adafruit_LSM6DSV::enableHighG(bool enable) {
 
 /**************************************************************************/
 /*!
-    @brief  Gets the sensor_t data for the LSM6DS's gyroscope sensor
+    @brief  Gets the sensor_t data for the LSM6DS's gyroscope sensor (radians/sec)
 */
 /**************************************************************************/
 void Adafruit_LSM6DSV_Gyro::getSensor(sensor_t *sensor) {
@@ -886,9 +922,9 @@ void Adafruit_LSM6DSV_Gyro::getSensor(sensor_t *sensor) {
   sensor->sensor_id = _theLSM6DSV->_sensorid_gyro;
   sensor->type = SENSOR_TYPE_GYROSCOPE;
   sensor->min_delay = 0;
-  sensor->min_value = -32767 * _theLSM6DSV->gyroScale;
-  sensor->max_value = 32767 * _theLSM6DSV->gyroScale;
-  sensor->resolution = _theLSM6DSV->gyroScale;
+  sensor->min_value = -32767 * SENSORS_DPS_TO_RADS * _theLSM6DSV->gyroScale;
+  sensor->max_value = 32767 * SENSORS_DPS_TO_RADS * _theLSM6DSV->gyroScale;
+  sensor->resolution = SENSORS_DPS_TO_RADS * _theLSM6DSV->gyroScale;
 }
 
 /**************************************************************************/
@@ -1055,6 +1091,227 @@ int Adafruit_LSM6DSV::readTemperature(float &tempC) {
 
   return 1;
 }
+
+/**************************************************************************/
+/*!
+    @brief Enable or disable access to the overlapping registers
+	       May only turn on one at a time.
+		   Functions using these should set this back to default afterwards
+    @param embFunc enable access to the embedded functions
+    @param sHub enable access to the sensor hub configuration
+	@param FSM enable access ot the finite state machine control registers
+	@param globalReset perform a power-on reset
+*/
+void Adafruit_LSM6DSV::funcCfgAccess(bool embFunc, bool sHub, bool FSM, bool globalReset) {
+  Adafruit_BusIO_Register funcCFG = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_FUNC_CFG_ACCESS);
+
+  //bit positions
+  const int EMB_FUNC_REG_ACCESS = 7;
+  const int SHUB_REG_ACCESS = 6;
+  const int FSM_WR_CTRL_EN = 3;
+  const int SW_POR = 2;
+
+  uint32_t val = 0; //only the first 8 bits of this value will be written
+  if(embFunc) bitSet(val, EMB_FUNC_REG_ACCESS);
+  if(sHub) bitSet(val, SHUB_REG_ACCESS);
+  if(FSM) bitSet(val, FSM_WR_CTRL_EN);
+  if(globalReset) bitSet(val, SW_POR);
+
+  funcCFG.write(val);
+}
+
+/**************************************************************************/
+/*!
+    @brief Enable or disable sensor fusion low power (SFLP)
+	       You should probably set the accelerometer user offsets for this to work best
+    @param enable true/false
+*/
+void Adafruit_LSM6DSV::enableSFLP(bool enable) {
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register funcEnA = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_EMB_FUNC_EN_A);
+
+  Adafruit_BusIO_RegisterBits en_bits =
+      Adafruit_BusIO_RegisterBits(&funcEnA, 1, 1);
+
+  en_bits.write(enable);
+
+  //last, reset the config functions access to default state
+  funcCfgAccess();
+}
+
+
+/**************************************************************************/
+/*!
+    @brief Gets the SFLP data rate.
+    @returns The the SFLP data rate.
+*/
+lsm6dsv_sflp_data_rate_t Adafruit_LSM6DSV::getSFLPDataRate(void) {
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register ctrl1 = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_SFLP_ODR);
+
+  Adafruit_BusIO_RegisterBits accel_data_rate =
+      Adafruit_BusIO_RegisterBits(&ctrl1, 3, 3);
+
+  uint8_t val = accel_data_rate.read();
+
+  //reset the config functions access to default state
+  funcCfgAccess();
+
+  return (lsm6dsv_sflp_data_rate_t)val;
+}
+
+/**************************************************************************/
+/*!
+    @brief Sets the SFLP data rate.
+    @param  data_rate Must be a `lsm6dsv_sflp_data_rate_t`.
+*/
+void Adafruit_LSM6DSV::setSFLPDataRate(lsm6dsv_sflp_data_rate_t data_rate) {
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register sflp_odr = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_SFLP_ODR);
+
+  Adafruit_BusIO_RegisterBits sflp_data_rate =
+      Adafruit_BusIO_RegisterBits(&sflp_odr, 3, 3);
+
+  sflp_data_rate.write(data_rate);
+
+  //last, reset the config functions access to default state
+  funcCfgAccess();
+}
+
+/*
+Further inputs to the SFLP algorithm:
+Looks like you can give it a clue for the starting value of the gyro bias (16-bit floating point)
+There's also an "initialization request" bit that may be set - no description on what this does, must be stationary?
+It can use accelerometer offsets if you've calibrated the accelerometer to add up to +/-127 to the raw accel readings
+before applying the SFLP algorithm. Let's see how it goes without that.
+
+Outputs:
+Gyro bias 16 bit integer with 4.375 milli degrees/sec per LSB
+Gravity vector X/Y/Z 16 bit with 0.061 mg/LSB
+Game rotation vector, as a quaternion W/X/Y/Z, (16-bit floating point) SEEEEEFFFFFFFFFF (sign/exponent/fraction)
+use the float16 library to work with that data.
+
+*/
+
+/**************************************************************************/
+/*!
+    @brief Read SFLP gravity data, meters/sec/sec
+    @param x reference to x axis
+    @param y reference to y axis
+    @param z reference to z axis
+    @returns 1 if success, 0 if not
+*/
+int Adafruit_LSM6DSV::readSFLPGravity(float &x, float &y, float &z) {
+  int16_t data[3];
+
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register accel_data = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_SFLP_GRAVX_L, sizeof(data));
+
+  if (!accel_data.read((uint8_t *)data, sizeof(data))) {
+    x = y = z = NAN;
+	funcCfgAccess();
+    return 0;
+  }
+
+  // scale to metres/sec/sec - note the SFLP is fixed at the "2G" scale for all variants, all the time
+  // and we don't store the calculated value as a side-effect like we do with the main measurements
+  x = data[0] * 0.061 * SENSORS_GRAVITY_STANDARD / 1000;
+  y = data[1] * 0.061 * SENSORS_GRAVITY_STANDARD / 1000;
+  z = data[2] * 0.061 * SENSORS_GRAVITY_STANDARD / 1000;
+
+  funcCfgAccess();
+  return 1; //success
+}
+
+
+/**************************************************************************/
+/*!
+    @brief Read SFLP gyro bias data, degrees/sec
+    @param x reference to x axis
+    @param y reference to y axis
+    @param z reference to z axis
+    @returns 1 if success, 0 if not
+*/
+int Adafruit_LSM6DSV::readSFLPGyroBias(float &x, float &y, float &z) {
+  int16_t data[3];
+
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register accel_data = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_SFLP_GBIASX_L, sizeof(data));
+
+  if (!accel_data.read((uint8_t *)data, sizeof(data))) {
+    x = y = z = NAN;
+	funcCfgAccess();
+    return 0;
+  }
+
+  // scale to degrees/sec - note the SFLP has a fixed scale for all variants, all the time
+  // and we don't store the calculated value as a side-effect like we do with the main measurements
+  x = data[0] * 4.375 / 1000;
+  y = data[1] * 4.375 / 1000;
+  z = data[2] * 4.375 / 1000;
+
+  funcCfgAccess();
+  return 1; //success
+}
+
+
+/**************************************************************************/
+/*!
+    @brief Read SFLP orientation quaternion (float16 or just an int16_t if you don't have <float16.h>)
+    @param w reference to w axis
+    @param x reference to x axis
+    @param y reference to y axis
+    @param z reference to z axis
+    @returns 1 if success, 0 if not
+*/
+int Adafruit_LSM6DSV::readSFLPQuaternion(float16 &w, float16 &x, float16 &y, float16 &z) {
+  int16_t data[4];
+
+  //first tell it that we will be talking to the embedded functions registers
+  funcCfgAccess(true);
+
+  Adafruit_BusIO_Register accel_data = Adafruit_BusIO_Register(
+      i2c_dev, spi_dev, ADDRBIT8_HIGH_TOREAD, LSM6DSV_SFLP_QUATW_L, sizeof(data));
+
+  if (!accel_data.read((uint8_t *)data, sizeof(data))) {
+    w = x = y = z = 0;
+	funcCfgAccess();
+    return 0;
+  }
+
+  // No scale for quaternion, but if we have float16 support, we'll need to use its conversion function
+#ifdef FLOAT16_LIB_VERSION
+  w.setBinary(data[0]);
+  x.setBinary(data[1]);
+  y.setBinary(data[2]);
+  z.setBinary(data[3]);
+#else
+  w = data[0];
+  x = data[1];
+  y = data[2];
+  z = data[3];
+#endif
+
+  funcCfgAccess();
+  return 1; //success
+}
+
 
 /**************************************************************************/
 /*!

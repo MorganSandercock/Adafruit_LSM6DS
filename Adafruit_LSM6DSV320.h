@@ -1,7 +1,10 @@
 /*!
  *  @file Adafruit_LSM6DSV320.h
  *
- * 	I2C Driver for the Adafruit LSM6DSV320 IMU chips.
+ * 	I2C Driver for the Adafruit LSM6DSV320 and LSM6DSV80 IMU chips.
+ *
+ *  The V80 is identical to the V320 except it only has 3 high-G ranges available,
+ *  so you can use this same class for both chips.
  *
  *
  * 	This is a library for the Adafruit LSM6DSV320 breakout:
@@ -36,7 +39,8 @@ s=scale/range o=ODRate                   ooosss
   The data ranges on the CTRL1 register are always numbered 0, 1, 2, 3 for all of the LSM6DS devices
   and this is the same for the low-G accelerometer in the V320
   However in the +/-320G device the second accelerometer has ranges 0-4 for 32, 64, 128, 256, 320
-  which is one more, so we can't just overlap the same enum. */
+  which is one more, so we can't just overlap the same enum. 
+  The V80 only has 3 ranges available for the high-g */
 typedef enum high_g_range {
   LSM6DSV320_ACCEL_RANGE_32_G,
   LSM6DSV320_ACCEL_RANGE_64_G,
@@ -44,6 +48,9 @@ typedef enum high_g_range {
   LSM6DSV320_ACCEL_RANGE_256_G,
   LSM6DSV320_ACCEL_RANGE_320_G
 } lsm6dsv320_accel_range_t;
+#define LSM6DSV80_ACCEL_RANGE_32_G LSM6DSV320_ACCEL_RANGE_32_G
+#define LSM6DSV80_ACCEL_RANGE_64_G LSM6DSV320_ACCEL_RANGE_64_G
+#define LSM6DSV80_ACCEL_RANGE_80_G LSM6DSV320_ACCEL_RANGE_128_G
 
 /** The high-g data rate - not the same set of rates as the main accel+gyro and two of them are "N/A" */
 typedef enum high_g_rate {
@@ -60,7 +67,7 @@ typedef enum high_g_rate {
 
 /*!
  *    @brief  Class that stores state and functions for interacting with
- *            the LSM6DSV320 - has a complete second "high G" accelerometer
+ *            the LSM6DSV320/80 - has a complete second "high G" accelerometer
  */
 class Adafruit_LSM6DSV320 : public Adafruit_LSM6DSV {
 public:
@@ -82,10 +89,19 @@ public:
 
 protected:  
   //! buffer for the unique high-g accelerometer range
-  lsm6dsv320_accel_range_t accelHighGBuffered = LSM6DSV320_ACCEL_RANGE_320_G;
+  lsm6dsv320_accel_range_t accelHighGBuffered = LSM6DSV320_ACCEL_RANGE_32_G;
 
 private:
   bool _init(int32_t sensor_id);
+};
+
+/*!
+ *    @brief  Sub-class for the "V80" version .
+              The only difference is two less high-G accelerometer ranges
+ */
+class Adafruit_LSM6DSV80 : public Adafruit_LSM6DSV320  {
+public:
+  Adafruit_LSM6DSV80() {};
 };
 
 #endif
